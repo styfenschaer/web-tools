@@ -777,54 +777,45 @@ body {
     padding: 12px;
 }
 
-/* Cuts Summary Cards */
-.cuts-summary-wrapper {
+/* Start & End Trim Readout Bar */
+.trim-readout-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 20px;
     background-color: rgba(9, 9, 11, 0.3);
     border: 1px solid var(--card-border);
     border-radius: var(--radius-md);
-    padding: 14px;
-}
-
-.cuts-summary-grid {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
-}
-
-.cut-summary-card {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    background-color: rgba(24, 24, 27, 0.8);
-    border: 1px solid var(--card-border);
-    border-radius: var(--radius-md);
     padding: 8px 14px;
-    min-width: 110px;
-    transition: all var(--transition-fast);
+    font-size: 0.85rem;
 }
 
-.cut-summary-card.is-modified {
-    border-color: #10b981;
-    background-color: rgba(16, 185, 129, 0.08);
+.trim-readout-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
 }
 
-.cut-card-title {
-    font-size: 0.75rem;
+.trim-label {
     font-weight: 600;
     color: var(--text-muted);
     text-transform: uppercase;
+    font-size: 0.75rem;
 }
 
-.cut-card-time {
+.trim-value {
     font-family: monospace;
     font-size: 0.85rem;
     font-weight: 600;
     color: var(--text-primary);
 }
 
-.cut-card-status {
-    font-size: 0.7rem;
-    color: var(--text-secondary);
+.trim-value.is-start {
+    color: #10b981;
+}
+
+.trim-value.is-end {
+    color: #ef4444;
 }
 
 .file-item-content {

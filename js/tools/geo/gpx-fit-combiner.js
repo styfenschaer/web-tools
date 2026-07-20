@@ -17,35 +17,33 @@ export class GpxFitCombinerTool extends Tool {
         });
 
         this.files = [];                    // List of parsed file objects
-        this.boundaryValues = [];            // Timestamps (ms) for N+1 boundary cuts
-        this.userModifiedSliders = new Set();
         this.hiddenFileIds = new Set();     // Track hidden files
         this.selectedMetric = 'speed';       // 'speed', 'ele', 'hr', 'cad', 'power'
         this.exportFormat = 'gpx';           // 'gpx' or 'fit'
+        this.startCut = null;               // Timestamp (ms) for global start trim
+        this.endCut = null;                 // Timestamp (ms) for global end trim
+        this.hoveredCutHandle = null;       // 'start' | 'end' | null
+        this.draggingCutHandle = null;      // 'start' | 'end' | null
+        this.activeSnapInfo = null;
         this.chart = null;
         this.container = null;
-
-        // Canvas interaction state
-        this.hoveredBoundaryIndex = null;
-        this.draggingBoundaryIndex = null;
-        this.activeSnapInfo = null;
         this.canvasEventsBound = false;
     }
 
     render(container) {
         this.container = container;
         this.files = [];
-        this.boundaryValues = [];
-        this.userModifiedSliders = new Set();
         this.hiddenFileIds = new Set();
         this.selectedMetric = 'speed';
         this.exportFormat = 'gpx';
+        this.startCut = null;
+        this.endCut = null;
 
         this.container.innerHTML = `
             <div class="tool-workspace gpx-fit-workspace">
                 <header class="workspace-header">
-                    <h2>GPX, FIT & TCX Track Combiner & Trimmer</h2>
-                    <p>Combine multiple GPX, FIT, and TCX activity files into a single track. Interactively drag cut lines, zoom the plot, and filter tracks.</p>
+                    <h2>GPX, FIT & TCX Track Combiner</h2>
+                    <p>Combine multiple GPX, FIT, and TCX activity files into a single track with automatic priority-based overlap resolution and Start/End trim controls.</p>
                 </header>
 
                 <input type="file" id="file-input-geo" multiple accept=".gpx,.fit,.tcx" style="display: none;">
@@ -91,27 +89,28 @@ export class GpxFitCombinerTool extends Tool {
                                 <button class="btn btn-secondary btn-sm" id="zoom-in-btn" title="Zoom In (+)">Zoom +</button>
                                 <button class="btn btn-secondary btn-sm" id="zoom-out-btn" title="Zoom Out (-)">Zoom -</button>
                                 <button class="btn btn-secondary btn-sm" id="reset-zoom-btn" title="Reset Zoom">Reset Zoom ↺</button>
-                                <button class="btn btn-secondary btn-sm" id="reset-cuts-btn" title="Reset Cut Lines">Reset Cuts</button>
+                                <button class="btn btn-secondary btn-sm" id="reset-trim-btn" title="Reset Start & End Trims">Reset Trim ↺</button>
                             </div>
                         </div>
 
                         <div class="chart-hint-bar">
                             <span class="hint-icon">💡</span>
-                            <span><strong>Tip:</strong> Drag vertical cut lines directly on the chart. Lines snap automatically to file start/end times! Click legend items or eye icons to show/hide files. Scroll mouse wheel to zoom.</span>
+                            <span><strong>Tip:</strong> Drag the green <strong>Start Trim</strong> and red <strong>End Trim</strong> lines directly on the chart to crop lead-in/lead-out time! Overlapping activity segments between Start and End automatically use data from the highest priority track in the file list.</span>
+                        </div>
+
+                        <div class="trim-readout-bar" id="trim-readout-bar">
+                            <div class="trim-readout-item">
+                                <span class="trim-label">Start Trim:</span>
+                                <span class="trim-value is-start" id="start-trim-val">Auto</span>
+                            </div>
+                            <div class="trim-readout-item">
+                                <span class="trim-label">End Trim:</span>
+                                <span class="trim-value is-end" id="end-trim-val">Auto</span>
+                            </div>
                         </div>
 
                         <div class="chart-container">
                             <canvas id="timeline-chart"></canvas>
-                        </div>
-                    </div>
-
-                    <!-- Cut Readout Summary Card -->
-                    <div class="section-container">
-                        <div class="section-header">
-                            <h2>Active Cut Boundaries</h2>
-                        </div>
-                        <div class="cuts-summary-wrapper" id="cuts-summary-wrapper">
-                            <!-- Dynamic Cut Badges -->
                         </div>
                     </div>
 
@@ -170,7 +169,7 @@ export class GpxFitCombinerTool extends Tool {
         const zoomInBtn = this.container.querySelector('#zoom-in-btn');
         const zoomOutBtn = this.container.querySelector('#zoom-out-btn');
         const resetZoomBtn = this.container.querySelector('#reset-zoom-btn');
-        const resetCutsBtn = this.container.querySelector('#reset-cuts-btn');
+        const resetTrimBtn = this.container.querySelector('#reset-trim-btn');
 
         ['dragenter', 'dragover'].forEach(name => {
             dropZone.addEventListener(name, (e) => {
@@ -203,9 +202,9 @@ export class GpxFitCombinerTool extends Tool {
 
         clearBtn.addEventListener('click', () => {
             this.files = [];
-            this.boundaryValues = [];
-            this.userModifiedSliders = new Set();
             this.hiddenFileIds = new Set();
+            this.startCut = null;
+            this.endCut = null;
             this.updateView();
         });
 
@@ -230,9 +229,9 @@ export class GpxFitCombinerTool extends Tool {
         if (zoomInBtn) zoomInBtn.addEventListener('click', () => this.zoomChart(1.3));
         if (zoomOutBtn) zoomOutBtn.addEventListener('click', () => this.zoomChart(0.7));
         if (resetZoomBtn) resetZoomBtn.addEventListener('click', () => this.resetChartZoom());
-        if (resetCutsBtn) {
-            resetCutsBtn.addEventListener('click', () => {
-                this.resetBoundaryValues();
+        if (resetTrimBtn) {
+            resetTrimBtn.addEventListener('click', () => {
+                this.resetCutBounds();
                 this.updateView();
             });
         }
@@ -267,7 +266,7 @@ export class GpxFitCombinerTool extends Tool {
 
         if (this.files.length > 0) {
             this.files.sort((a, b) => a.startTime - b.startTime);
-            this.resetBoundaryValues();
+            this.resetCutBounds();
             this.updateView();
         }
     }
@@ -748,32 +747,55 @@ export class GpxFitCombinerTool extends Tool {
     // ----------------------------------------------------
     // Boundary Calculations & Constraints
     // ----------------------------------------------------
-    resetBoundaryValues() {
-        this.userModifiedSliders = new Set();
+    ensureCutBounds() {
         if (this.files.length === 0) {
-            this.boundaryValues = [];
+            this.startCut = null;
+            this.endCut = null;
             return;
         }
-
-        const N = this.files.length;
-        this.boundaryValues = new Array(N + 1);
 
         const globalMin = Math.min(...this.files.map(f => f.startTime));
         const globalMax = Math.max(...this.files.map(f => f.endTime));
 
-        this.boundaryValues[0] = globalMin;
-
-        for (let i = 1; i < N; i++) {
-            const prevEnd = this.files[i - 1].endTime;
-            const currStart = this.files[i].startTime;
-            if (prevEnd >= currStart) {
-                this.boundaryValues[i] = Math.round((currStart + prevEnd) / 2);
-            } else {
-                this.boundaryValues[i] = prevEnd;
-            }
+        if (this.startCut === null || this.startCut < globalMin || this.startCut >= globalMax) {
+            this.startCut = globalMin;
+        }
+        if (this.endCut === null || this.endCut > globalMax || this.endCut <= globalMin) {
+            this.endCut = globalMax;
         }
 
-        this.boundaryValues[N] = globalMax;
+        if (this.startCut >= this.endCut) {
+            this.startCut = globalMin;
+            this.endCut = globalMax;
+        }
+    }
+
+    resetCutBounds() {
+        if (this.files.length === 0) {
+            this.startCut = null;
+            this.endCut = null;
+            return;
+        }
+        this.startCut = Math.min(...this.files.map(f => f.startTime));
+        this.endCut = Math.max(...this.files.map(f => f.endTime));
+    }
+
+    renderTrimReadouts() {
+        const startValEl = this.container.querySelector('#start-trim-val');
+        const endValEl = this.container.querySelector('#end-trim-val');
+        if (!startValEl || !endValEl || this.files.length === 0) return;
+
+        const globalMin = Math.min(...this.files.map(f => f.startTime));
+        const globalMax = Math.max(...this.files.map(f => f.endTime));
+
+        const isStartModified = this.startCut !== null && Math.abs(this.startCut - globalMin) > 500;
+        const isEndModified = this.endCut !== null && Math.abs(this.endCut - globalMax) > 500;
+
+        const startStr = this.startCut ? new Date(this.startCut).toLocaleTimeString() : 'N/A';
+        const endStr = this.endCut ? new Date(this.endCut).toLocaleTimeString() : 'N/A';
+
+        startValEl.textContent = isStartModified ? `${startStr} (Trimmed)` : `${startStr} (Start)`;
+        endValEl.textContent = isEndModified ? `${endStr} (Trimmed)` : `${endStr} (End)`;
     }
 
     toggleFileVisibility(fileId) {
@@ -782,7 +804,8 @@ export class GpxFitCombinerTool extends Tool {
         } else {
             this.hiddenFileIds.add(fileId);
         }
-        this.updateView();
+        this.renderFileList();
+        this.renderChart();
     }
 
     updateView() {
@@ -802,6 +825,8 @@ export class GpxFitCombinerTool extends Tool {
         dropZone.style.display = 'none';
         combinerContent.style.display = 'flex';
 
+        this.ensureCutBounds();
+
         const filenameInput = this.container.querySelector('#output-track-name');
         if (filenameInput && !filenameInput.value) {
             filenameInput.value = this.files[0].name.replace(/\.(gpx|fit|tcx)$/i, '') + '_combined';
@@ -813,7 +838,7 @@ export class GpxFitCombinerTool extends Tool {
         }
 
         this.renderFileList();
-        this.renderCutsSummary();
+        this.renderTrimReadouts();
         this.renderCombinedStats();
         this.renderChart();
     }
@@ -959,7 +984,6 @@ export class GpxFitCombinerTool extends Tool {
             const temp = this.files[index];
             this.files[index] = this.files[index - 1];
             this.files[index - 1] = temp;
-            this.resetBoundaryValues();
             this.updateView();
         }
     }
@@ -969,7 +993,6 @@ export class GpxFitCombinerTool extends Tool {
             const temp = this.files[index];
             this.files[index] = this.files[index + 1];
             this.files[index + 1] = temp;
-            this.resetBoundaryValues();
             this.updateView();
         }
     }
@@ -977,47 +1000,7 @@ export class GpxFitCombinerTool extends Tool {
     removeFile(id) {
         this.files = this.files.filter(f => f.id !== id);
         this.hiddenFileIds.delete(id);
-        this.resetBoundaryValues();
         this.updateView();
-    }
-
-    renderCutsSummary() {
-        const wrapper = this.container.querySelector('#cuts-summary-wrapper');
-        if (!wrapper) return;
-        wrapper.innerHTML = '';
-
-        if (this.files.length === 0) return;
-
-        const N = this.files.length;
-        const flexContainer = document.createElement('div');
-        flexContainer.className = 'cuts-summary-grid';
-
-        for (let i = 0; i <= N; i++) {
-            let label = '';
-            if (i === 0) {
-                label = 'Start Cut';
-            } else if (i === N) {
-                label = 'End Cut';
-            } else {
-                label = `Cut ${i}`;
-            }
-
-            const val = this.boundaryValues[i];
-            const timeStr = val ? new Date(val).toLocaleTimeString() : 'N/A';
-            const isModified = this.userModifiedSliders.has(i);
-
-            const badge = document.createElement('div');
-            badge.className = `cut-summary-card ${isModified ? 'is-modified' : ''}`;
-            badge.innerHTML = `
-                <span class="cut-card-title">${label}</span>
-                <span class="cut-card-time">${timeStr}</span>
-                <span class="cut-card-status">${isModified ? 'Trimmed' : 'Auto'}</span>
-            `;
-
-            flexContainer.appendChild(badge);
-        }
-
-        wrapper.appendChild(flexContainer);
     }
 
     // ----------------------------------------------------
@@ -1074,58 +1057,80 @@ export class GpxFitCombinerTool extends Tool {
         };
 
         const self = this;
-        const boundaryLinesPlugin = {
-            id: 'boundaryLinesPlugin',
+        const startEndCutPlugin = {
+            id: 'startEndCutPlugin',
             afterDraw: (chart) => {
                 const { ctx, chartArea, scales } = chart;
-                if (!scales.x || !chartArea) return;
+                if (!scales.x || !chartArea || self.files.length === 0) return;
+
+                self.ensureCutBounds();
+                const { startCut, endCut } = self;
+                if (startCut === null || endCut === null) return;
+
+                const startX = scales.x.getPixelForValue(startCut);
+                const endX = scales.x.getPixelForValue(endCut);
 
                 ctx.save();
 
-                self.boundaryValues.forEach((timeMs, idx) => {
-                    const xPixel = scales.x.getPixelForValue(timeMs);
-                    if (xPixel >= chartArea.left && xPixel <= chartArea.right) {
-                        const isEnd = idx === 0 || idx === self.files.length;
-                        const isHovered = self.hoveredBoundaryIndex === idx;
-                        const isDragging = self.draggingBoundaryIndex === idx;
+                // Dim cropped region before startCut
+                if (startX > chartArea.left) {
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+                    ctx.fillRect(chartArea.left, chartArea.top, Math.min(startX, chartArea.right) - chartArea.left, chartArea.bottom - chartArea.top);
+                }
 
-                        let lineColor = isEnd ? '#ef4444' : '#f59e0b';
-                        if (isDragging || isHovered) lineColor = '#10b981';
+                // Dim cropped region after endCut
+                if (endX < chartArea.right) {
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
+                    ctx.fillRect(Math.max(endX, chartArea.left), chartArea.top, chartArea.right - Math.max(endX, chartArea.left), chartArea.bottom - chartArea.top);
+                }
 
-                        const labelText = idx === 0 ? 'Start Cut' : (idx === self.files.length ? 'End Cut' : `Cut ${idx}`);
+                // Draw Start Cut handle line (#10b981 - Green)
+                if (startX >= chartArea.left && startX <= chartArea.right) {
+                    const isHovered = self.hoveredCutHandle === 'start';
+                    const isDragging = self.draggingCutHandle === 'start';
+                    const color = '#10b981';
 
-                        if (isHovered || isDragging) {
-                            ctx.shadowColor = lineColor;
-                            ctx.shadowBlur = 8;
-                        } else {
-                            ctx.shadowBlur = 0;
-                        }
+                    ctx.beginPath();
+                    ctx.setLineDash((isHovered || isDragging) ? [] : [4, 4]);
+                    ctx.lineWidth = (isHovered || isDragging) ? 3 : 2;
+                    ctx.strokeStyle = color;
+                    ctx.moveTo(startX, chartArea.top);
+                    ctx.lineTo(startX, chartArea.bottom);
+                    ctx.stroke();
 
-                        ctx.beginPath();
-                        ctx.setLineDash((isHovered || isDragging) ? [] : [5, 5]);
-                        ctx.lineWidth = (isHovered || isDragging) ? 3 : 2;
-                        ctx.strokeStyle = lineColor;
-                        ctx.moveTo(xPixel, chartArea.top);
-                        ctx.lineTo(xPixel, chartArea.bottom);
-                        ctx.stroke();
-                        ctx.shadowBlur = 0;
+                    ctx.fillStyle = color;
+                    ctx.font = 'bold 11px Inter, sans-serif';
+                    ctx.fillRect(startX - 32, chartArea.top, 64, 18);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('Start Trim', startX, chartArea.top + 9);
+                }
 
-                        ctx.fillStyle = lineColor;
-                        ctx.beginPath();
-                        ctx.arc(xPixel, (chartArea.top + chartArea.bottom) / 2, (isHovered || isDragging) ? 6 : 4, 0, Math.PI * 2);
-                        ctx.fill();
+                // Draw End Cut handle line (#ef4444 - Red)
+                if (endX >= chartArea.left && endX <= chartArea.right) {
+                    const isHovered = self.hoveredCutHandle === 'end';
+                    const isDragging = self.draggingCutHandle === 'end';
+                    const color = '#ef4444';
 
-                        ctx.fillStyle = lineColor;
-                        ctx.font = 'bold 11px Inter, sans-serif';
-                        ctx.fillRect(xPixel - 24, chartArea.top, 48, 18);
+                    ctx.beginPath();
+                    ctx.setLineDash((isHovered || isDragging) ? [] : [4, 4]);
+                    ctx.lineWidth = (isHovered || isDragging) ? 3 : 2;
+                    ctx.strokeStyle = color;
+                    ctx.moveTo(endX, chartArea.top);
+                    ctx.lineTo(endX, chartArea.bottom);
+                    ctx.stroke();
 
-                        ctx.fillStyle = '#ffffff';
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'middle';
-                        ctx.fillText(labelText, xPixel, chartArea.top + 9);
-                    }
-                });
+                    ctx.fillStyle = color;
+                    ctx.font = 'bold 11px Inter, sans-serif';
+                    ctx.fillRect(endX - 30, chartArea.top, 60, 18);
+                    ctx.fillStyle = '#ffffff';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText('End Trim', endX, chartArea.top + 9);
+                }
 
+                // Snap badge
                 if (self.activeSnapInfo) {
                     ctx.font = 'bold 12px Inter, sans-serif';
                     const textWidth = ctx.measureText(self.activeSnapInfo).width;
@@ -1133,7 +1138,7 @@ export class GpxFitCombinerTool extends Tool {
                     const badgeX = (chartArea.left + chartArea.right) / 2 - badgeWidth / 2;
                     const badgeY = chartArea.top + 24;
 
-                    ctx.fillStyle = '#10b981';
+                    ctx.fillStyle = '#8b5cf6';
                     ctx.beginPath();
                     if (ctx.roundRect) {
                         ctx.roundRect(badgeX, badgeY, badgeWidth, 26, 6);
@@ -1142,7 +1147,7 @@ export class GpxFitCombinerTool extends Tool {
                     }
                     ctx.fill();
 
-                    ctx.fillStyle = '#000000';
+                    ctx.fillStyle = '#ffffff';
                     ctx.textAlign = 'center';
                     ctx.textBaseline = 'middle';
                     ctx.fillText(`📌 ${self.activeSnapInfo}`, (chartArea.left + chartArea.right) / 2, badgeY + 13);
@@ -1152,11 +1157,14 @@ export class GpxFitCombinerTool extends Tool {
             }
         };
 
+        const globalMin = Math.min(...this.files.map(f => f.startTime));
+        const globalMax = Math.max(...this.files.map(f => f.endTime));
+
         const ctx = canvas.getContext('2d');
         this.chart = new window.Chart(ctx, {
             type: 'line',
             data: { datasets },
-            plugins: [boundaryLinesPlugin],
+            plugins: [startEndCutPlugin],
             options: {
                 responsive: true,
                 maintainAspectRatio: false,
@@ -1168,6 +1176,8 @@ export class GpxFitCombinerTool extends Tool {
                 scales: {
                     x: {
                         type: 'linear',
+                        min: globalMin,
+                        max: globalMax,
                         title: { display: true, text: 'Absolute Time (UTC)', color: '#a1a1aa' },
                         ticks: {
                             color: '#a1a1aa',
@@ -1222,19 +1232,22 @@ export class GpxFitCombinerTool extends Tool {
             return clientX - rect.left;
         };
 
-        const findHoveredBoundary = (mouseX) => {
-            if (!this.chart || !this.chart.scales || !this.chart.scales.x) return -1;
+        const findHoveredHandle = (mouseX) => {
+            if (!this.chart || !this.chart.scales || !this.chart.scales.x) return null;
             const scaleX = this.chart.scales.x;
-            const threshold = 12;
+            const threshold = 14;
 
-            for (let i = 0; i < this.boundaryValues.length; i++) {
-                const bVal = this.boundaryValues[i];
-                const bPix = scaleX.getPixelForValue(bVal);
-                if (Math.abs(bPix - mouseX) <= threshold) {
-                    return i;
-                }
+            if (this.startCut !== null) {
+                const startPix = scaleX.getPixelForValue(this.startCut);
+                if (Math.abs(startPix - mouseX) <= threshold) return 'start';
             }
-            return -1;
+
+            if (this.endCut !== null) {
+                const endPix = scaleX.getPixelForValue(this.endCut);
+                if (Math.abs(endPix - mouseX) <= threshold) return 'end';
+            }
+
+            return null;
         };
 
         const onPointerMove = (e) => {
@@ -1251,18 +1264,18 @@ export class GpxFitCombinerTool extends Tool {
                 return;
             }
 
-            if (this.draggingBoundaryIndex === null) {
-                const hIdx = findHoveredBoundary(mouseX);
-                if (hIdx !== -1) {
+            if (this.draggingCutHandle === null) {
+                const handle = findHoveredHandle(mouseX);
+                if (handle) {
                     canvas.style.cursor = 'col-resize';
-                    if (this.hoveredBoundaryIndex !== hIdx) {
-                        this.hoveredBoundaryIndex = hIdx;
+                    if (this.hoveredCutHandle !== handle) {
+                        this.hoveredCutHandle = handle;
                         this.chart.update('none');
                     }
                 } else {
                     canvas.style.cursor = 'grab';
-                    if (this.hoveredBoundaryIndex !== null) {
-                        this.hoveredBoundaryIndex = null;
+                    if (this.hoveredCutHandle !== null) {
+                        this.hoveredCutHandle = null;
                         this.chart.update('none');
                     }
                 }
@@ -1270,7 +1283,6 @@ export class GpxFitCombinerTool extends Tool {
             }
 
             const scaleX = this.chart.scales.x;
-            const idx = this.draggingBoundaryIndex;
             let timeVal = scaleX.getValueForPixel(mouseX);
 
             let snappedTime = null;
@@ -1278,8 +1290,6 @@ export class GpxFitCombinerTool extends Tool {
             const snapThresholdPx = 15;
 
             for (const fileObj of this.files) {
-                if (this.hiddenFileIds.has(fileObj.id)) continue;
-
                 const startPix = scaleX.getPixelForValue(fileObj.startTime);
                 if (Math.abs(startPix - mouseX) <= snapThresholdPx) {
                     snappedTime = fileObj.startTime;
@@ -1302,25 +1312,27 @@ export class GpxFitCombinerTool extends Tool {
                 this.activeSnapInfo = null;
             }
 
-            const globalMinTime = Math.min(...this.files.map(f => f.startTime));
-            const globalMaxTime = Math.max(...this.files.map(f => f.endTime));
-            const minAllowed = (idx === 0) ? globalMinTime : this.boundaryValues[idx - 1];
-            const maxAllowed = (idx === this.files.length) ? globalMaxTime : this.boundaryValues[idx + 1];
+            const globalMin = Math.min(...this.files.map(f => f.startTime));
+            const globalMax = Math.max(...this.files.map(f => f.endTime));
 
-            timeVal = Math.max(minAllowed, Math.min(maxAllowed, timeVal));
-            this.boundaryValues[idx] = timeVal;
-            this.userModifiedSliders.add(idx);
+            if (this.draggingCutHandle === 'start') {
+                const maxAllowed = this.endCut !== null ? this.endCut - 1000 : globalMax;
+                this.startCut = Math.max(globalMin, Math.min(maxAllowed, timeVal));
+            } else if (this.draggingCutHandle === 'end') {
+                const minAllowed = this.startCut !== null ? this.startCut + 1000 : globalMin;
+                this.endCut = Math.max(minAllowed, Math.min(globalMax, timeVal));
+            }
 
-            this.renderCutsSummary();
+            this.renderTrimReadouts();
             this.renderCombinedStats();
             this.chart.update('none');
         };
 
         const onPointerDown = (e) => {
             const mouseX = getMouseX(e);
-            const hIdx = findHoveredBoundary(mouseX);
-            if (hIdx !== -1) {
-                this.draggingBoundaryIndex = hIdx;
+            const handle = findHoveredHandle(mouseX);
+            if (handle) {
+                this.draggingCutHandle = handle;
                 canvas.style.cursor = 'col-resize';
                 if (canvas.setPointerCapture && e.pointerId) {
                     try { canvas.setPointerCapture(e.pointerId); } catch (_) { }
@@ -1338,13 +1350,13 @@ export class GpxFitCombinerTool extends Tool {
         };
 
         const onPointerUp = (e) => {
-            if (this.draggingBoundaryIndex !== null) {
+            if (this.draggingCutHandle !== null) {
                 if (canvas.releasePointerCapture && e.pointerId) {
                     try { canvas.releasePointerCapture(e.pointerId); } catch (_) { }
                 }
-                this.draggingBoundaryIndex = null;
+                this.draggingCutHandle = null;
                 this.activeSnapInfo = null;
-                this.hoveredBoundaryIndex = null;
+                this.hoveredCutHandle = null;
                 canvas.style.cursor = 'grab';
                 if (this.chart) this.chart.update('none');
             }
@@ -1400,17 +1412,17 @@ export class GpxFitCombinerTool extends Tool {
 
         const saveBtn = this.container.querySelector('#save-result-btn');
         const loader = this.container.querySelector('#loader-geo');
-        const btnText = saveBtn.querySelector('.btn-text');
+        const btnText = saveBtn ? saveBtn.querySelector('.btn-text') : null;
 
-        saveBtn.disabled = true;
-        loader.style.display = 'block';
-        btnText.style.display = 'none';
+        if (saveBtn) saveBtn.disabled = true;
+        if (loader) loader.style.display = 'block';
+        if (btnText) btnText.style.display = 'none';
 
         try {
             const finalTrackpoints = this.buildCombinedTrackpoints();
 
             if (finalTrackpoints.length === 0) {
-                alert('No trackpoints remaining after current cuts or filter settings.');
+                alert('No trackpoints remaining to export.');
                 return;
             }
 
@@ -1436,108 +1448,38 @@ export class GpxFitCombinerTool extends Tool {
             console.error('Export error:', error);
             alert(`Failed to export track:\n${error.message}`);
         } finally {
-            saveBtn.disabled = false;
-            loader.style.display = 'none';
-            btnText.style.display = 'inline-block';
+            if (saveBtn) saveBtn.disabled = false;
+            if (loader) loader.style.display = 'none';
+            if (btnText) btnText.style.display = 'inline-block';
         }
-    }
-
-    generateTcxXml(trackpoints, trackName = 'Combined_Track') {
-        if (!trackpoints || trackpoints.length === 0) return '';
-
-        const startTimeIso = new Date(trackpoints[0].time).toISOString();
-        const stats = this.calculateTrackStats(trackpoints);
-        const totalDistMeters = Math.round(stats.distanceKm * 1000);
-        const totalDurationSec = Math.round(stats.elapsedTimeMs / 1000);
-
-        let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
-        xml += `<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2" xmlns:ns3="http://www.garmin.com/xmlschemas/ActivityExtension/v2">\n`;
-        xml += `  <Activities>\n`;
-        xml += `    <Activity Sport="Biking">\n`;
-        xml += `      <Id>${startTimeIso}</Id>\n`;
-        xml += `      <Lap StartTime="${startTimeIso}">\n`;
-        xml += `        <TotalTimeSeconds>${totalDurationSec}</TotalTimeSeconds>\n`;
-        xml += `        <DistanceMeters>${totalDistMeters}</DistanceMeters>\n`;
-        if (stats.maxSpeedKmH > 0) xml += `        <MaximumSpeed>${(stats.maxSpeedKmH / 3.6).toFixed(2)}</MaximumSpeed>\n`;
-        if (stats.avgHr) xml += `        <AverageHeartRateBpm><Value>${stats.avgHr}</Value></AverageHeartRateBpm>\n`;
-        if (stats.maxHr) xml += `        <MaximumHeartRateBpm><Value>${stats.maxHr}</Value></MaximumHeartRateBpm>\n`;
-        xml += `        <Intensity>Active</Intensity>\n`;
-        xml += `        <TriggerMethod>Manual</TriggerMethod>\n`;
-        xml += `        <Track>\n`;
-
-        let cumulativeDistKm = 0;
-        for (let i = 0; i < trackpoints.length; i++) {
-            const pt = trackpoints[i];
-            if (i > 0) {
-                const prev = trackpoints[i - 1];
-                cumulativeDistKm += this.calculateDistanceKm(prev.lat, prev.lon, pt.lat, pt.lon);
-            }
-
-            const ptTimeIso = new Date(pt.time).toISOString();
-            xml += `          <Trackpoint>\n`;
-            xml += `            <Time>${ptTimeIso}</Time>\n`;
-            xml += `            <Position>\n`;
-            xml += `              <LatitudeDegrees>${pt.lat.toFixed(6)}</LatitudeDegrees>\n`;
-            xml += `              <LongitudeDegrees>${pt.lon.toFixed(6)}</LongitudeDegrees>\n`;
-            xml += `            </Position>\n`;
-            if (pt.ele !== null && !isNaN(pt.ele)) xml += `            <AltitudeMeters>${pt.ele.toFixed(1)}</AltitudeMeters>\n`;
-            xml += `            <DistanceMeters>${Math.round(cumulativeDistKm * 1000)}</DistanceMeters>\n`;
-            if (pt.hr !== null && !isNaN(pt.hr)) {
-                xml += `            <HeartRateBpm><Value>${Math.round(pt.hr)}</Value></HeartRateBpm>\n`;
-            }
-            if (pt.cad !== null && !isNaN(pt.cad)) {
-                xml += `            <Cadence>${Math.round(pt.cad)}</Cadence>\n`;
-            }
-
-            const hasExt = (pt.speed !== null && !isNaN(pt.speed)) || (pt.power !== null && !isNaN(pt.power));
-            if (hasExt) {
-                xml += `            <Extensions>\n`;
-                xml += `              <ns3:TPX>\n`;
-                if (pt.speed !== null && !isNaN(pt.speed)) {
-                    xml += `                <ns3:Speed>${(pt.speed / 3.6).toFixed(2)}</ns3:Speed>\n`;
-                }
-                if (pt.power !== null && !isNaN(pt.power)) {
-                    xml += `                <ns3:Watts>${Math.round(pt.power)}</ns3:Watts>\n`;
-                }
-                xml += `              </ns3:TPX>\n`;
-                xml += `            </Extensions>\n`;
-            }
-
-            xml += `          </Trackpoint>\n`;
-        }
-
-        xml += `        </Track>\n`;
-        xml += `      </Lap>\n`;
-        xml += `    </Activity>\n`;
-        xml += `  </Activities>\n`;
-        xml += `</TrainingCenterDatabase>\n`;
-
-        return xml;
     }
 
     buildCombinedTrackpoints() {
-        const N = this.files.length;
+        if (this.files.length === 0) return [];
+
+        this.ensureCutBounds();
+
+        const effectiveStart = this.startCut;
+        const effectiveEnd = this.endCut;
+
         const resultPoints = [];
 
-        for (let i = 0; i < N; i++) {
-            const fileObj = this.files[i];
+        this.files.forEach((fileObj, priorityIdx) => {
+            const higherPriorityFiles = this.files.slice(0, priorityIdx);
 
-            if (this.hiddenFileIds.has(fileObj.id)) continue;
+            fileObj.trackpoints.forEach(pt => {
+                if (effectiveStart !== null && pt.time < effectiveStart) return;
+                if (effectiveEnd !== null && pt.time > effectiveEnd) return;
 
-            const startCut = (this.userModifiedSliders && this.userModifiedSliders.has(i))
-                ? this.boundaryValues[i]
-                : ((this.userModifiedSliders && this.userModifiedSliders.has(0)) ? Math.max(fileObj.startTime, this.boundaryValues[0]) : fileObj.startTime);
+                const isOverlapped = higherPriorityFiles.some(hpFile => {
+                    return pt.time >= hpFile.startTime && pt.time <= hpFile.endTime;
+                });
 
-            const endCut = (this.userModifiedSliders && this.userModifiedSliders.has(i + 1))
-                ? this.boundaryValues[i + 1]
-                : ((this.userModifiedSliders && this.userModifiedSliders.has(N)) ? Math.min(fileObj.endTime, this.boundaryValues[N]) : fileObj.endTime);
-
-            const segmentPoints = fileObj.trackpoints.filter(pt => {
-                return pt.time >= startCut && pt.time <= endCut;
+                if (!isOverlapped) {
+                    resultPoints.push(pt);
+                }
             });
-
-            resultPoints.push(...segmentPoints);
-        }
+        });
 
         resultPoints.sort((a, b) => a.time - b.time);
 
@@ -1718,9 +1660,12 @@ export class GpxFitCombinerTool extends Tool {
             this.chart = null;
         }
         this.files = [];
-        this.boundaryValues = [];
         this.hiddenFileIds = new Set();
-        this.userModifiedSliders = new Set();
+        this.startCut = null;
+        this.endCut = null;
+        this.hoveredCutHandle = null;
+        this.draggingCutHandle = null;
+        this.activeSnapInfo = null;
         this.container = null;
         this.canvasEventsBound = false;
     }
