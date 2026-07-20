@@ -4,9 +4,9 @@ export class GpxFitCombinerTool extends Tool {
     constructor() {
         super({
             id: 'gpx-fit-combiner',
-            name: 'GPX & FIT Track Tool',
-            description: 'Combine, reorder, trim, and visualize GPS track files (.gpx, .fit) with interactive plot controls.',
-            tags: ['gpx', 'fit', 'gps', 'garmin', 'strava', 'combine', 'merge', 'trim', 'split', 'tracks'],
+            name: 'GPX, FIT & TCX Track Tool',
+            description: 'Combine, reorder, trim, and visualize GPS track files (.gpx, .fit, .tcx) with interactive plot controls.',
+            tags: ['gpx', 'fit', 'tcx', 'gps', 'garmin', 'strava', 'combine', 'merge', 'trim', 'split', 'tracks'],
             icon: `
                 <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                     <polygon points="1 6 1 22 8 18 16 22 23 18 23 2 16 6 8 2 1 6"></polygon>
@@ -44,11 +44,11 @@ export class GpxFitCombinerTool extends Tool {
         this.container.innerHTML = `
             <div class="tool-workspace gpx-fit-workspace">
                 <header class="workspace-header">
-                    <h2>GPX & FIT Track Combiner & Trimmer</h2>
-                    <p>Combine multiple GPX and FIT files into a single track. Interactively drag cut lines, zoom the plot, and filter tracks.</p>
+                    <h2>GPX, FIT & TCX Track Combiner & Trimmer</h2>
+                    <p>Combine multiple GPX, FIT, and TCX activity files into a single track. Interactively drag cut lines, zoom the plot, and filter tracks.</p>
                 </header>
 
-                <input type="file" id="file-input-geo" multiple accept=".gpx,.fit" style="display: none;">
+                <input type="file" id="file-input-geo" multiple accept=".gpx,.fit,.tcx" style="display: none;">
 
                 <div class="drop-zone" id="drop-zone-geo">
                     <div class="drop-zone-content">
@@ -57,7 +57,7 @@ export class GpxFitCombinerTool extends Tool {
                             <line x1="8" y1="2" x2="8" y2="18"></line>
                             <line x1="16" y1="6" x2="16" y2="22"></line>
                         </svg>
-                        <h3>Drag & Drop .gpx or .fit files here</h3>
+                        <h3>Drag & Drop .gpx, .fit, or .tcx files here</h3>
                         <p>or click to select track files from your computer</p>
                     </div>
                 </div>
@@ -78,8 +78,8 @@ export class GpxFitCombinerTool extends Tool {
                     <div class="section-container">
                         <div class="chart-controls-bar">
                             <div class="control-group">
-                                <label for="metric-selector" class="input-label">Metric:</label>
-                                <select id="metric-selector" class="select-input">
+                                <label for="metric-select" class="input-label">Plot Metric:</label>
+                                <select id="metric-select" class="select-input">
                                     <option value="speed">Speed (km/h)</option>
                                     <option value="ele">Elevation (m)</option>
                                     <option value="hr">Heart Rate (bpm)</option>
@@ -132,6 +132,7 @@ export class GpxFitCombinerTool extends Tool {
                                 <label for="export-format" class="input-label">Export Format:</label>
                                 <select id="export-format" class="select-input">
                                     <option value="gpx">GPX Track (.gpx)</option>
+                                    <option value="tcx">TCX Activity (.tcx)</option>
                                     <option value="fit">FIT Activity (.fit)</option>
                                 </select>
                             </div>
@@ -161,7 +162,7 @@ export class GpxFitCombinerTool extends Tool {
         const dropZone = this.container.querySelector('#drop-zone-geo');
         const fileInput = this.container.querySelector('#file-input-geo');
         const clearBtn = this.container.querySelector('#clear-all-geo');
-        const metricSelect = this.container.querySelector('#metric-selector');
+        const metricSelect = this.container.querySelector('#metric-select');
         const formatSelect = this.container.querySelector('#export-format');
         const exportSuffix = this.container.querySelector('#export-suffix');
         const saveBtn = this.container.querySelector('#save-result-btn');
@@ -208,25 +209,33 @@ export class GpxFitCombinerTool extends Tool {
             this.updateView();
         });
 
-        metricSelect.addEventListener('change', (e) => {
-            this.selectedMetric = e.target.value;
-            this.renderChart();
-        });
+        if (metricSelect) {
+            metricSelect.addEventListener('change', (e) => {
+                this.selectedMetric = e.target.value;
+                this.renderChart();
+            });
+        }
 
-        formatSelect.addEventListener('change', (e) => {
-            this.exportFormat = e.target.value;
-            exportSuffix.textContent = `.${this.exportFormat}`;
-        });
+        if (formatSelect && exportSuffix) {
+            formatSelect.addEventListener('change', (e) => {
+                this.exportFormat = e.target.value;
+                exportSuffix.textContent = `.${this.exportFormat}`;
+            });
+        }
 
-        saveBtn.addEventListener('click', () => this.saveResult());
+        if (saveBtn) {
+            saveBtn.addEventListener('click', () => this.saveResult());
+        }
 
-        zoomInBtn.addEventListener('click', () => this.zoomChart(1.3));
-        zoomOutBtn.addEventListener('click', () => this.zoomChart(0.7));
-        resetZoomBtn.addEventListener('click', () => this.resetChartZoom());
-        resetCutsBtn.addEventListener('click', () => {
-            this.resetBoundaryValues();
-            this.updateView();
-        });
+        if (zoomInBtn) zoomInBtn.addEventListener('click', () => this.zoomChart(1.3));
+        if (zoomOutBtn) zoomOutBtn.addEventListener('click', () => this.zoomChart(0.7));
+        if (resetZoomBtn) resetZoomBtn.addEventListener('click', () => this.resetChartZoom());
+        if (resetCutsBtn) {
+            resetCutsBtn.addEventListener('click', () => {
+                this.resetBoundaryValues();
+                this.updateView();
+            });
+        }
     }
 
     async handleFiles(fileList) {
@@ -234,11 +243,11 @@ export class GpxFitCombinerTool extends Tool {
 
         const filesToProcess = Array.from(fileList).filter(f => {
             const name = f.name.toLowerCase();
-            return name.endsWith('.gpx') || name.endsWith('.fit');
+            return name.endsWith('.gpx') || name.endsWith('.fit') || name.endsWith('.tcx');
         });
 
         if (filesToProcess.length === 0) {
-            alert('Please select valid .gpx or .fit files.');
+            alert('Please select valid .gpx, .fit, or .tcx files.');
             return;
         }
 
@@ -267,15 +276,16 @@ export class GpxFitCombinerTool extends Tool {
     // File Parsers: GPX (XML) & FIT (Binary)
     // ----------------------------------------------------
     async parseFile(file) {
-        const name = file.name;
-        const isGpx = name.toLowerCase().endsWith('.gpx');
-
-        if (isGpx) {
+        const name = file.name.toLowerCase();
+        if (name.endsWith('.gpx')) {
             const text = await file.text();
-            return this.parseGpx(name, text, file.size);
+            return this.parseGpx(file.name, text, file.size);
+        } else if (name.endsWith('.tcx')) {
+            const text = await file.text();
+            return this.parseTcx(file.name, text, file.size);
         } else {
             const buffer = await file.arrayBuffer();
-            return this.parseFit(name, buffer, file.size);
+            return this.parseFit(file.name, buffer, file.size);
         }
     }
 
@@ -289,7 +299,7 @@ export class GpxFitCombinerTool extends Tool {
     parseGpx(fileName, xmlText, fileSize) {
         const parser = new DOMParser();
         const doc = parser.parseFromString(xmlText, 'text/xml');
-        
+
         const parserError = doc.querySelector('parsererror');
         if (parserError) {
             console.error('GPX XML Parse Error:', parserError.textContent);
@@ -312,7 +322,7 @@ export class GpxFitCombinerTool extends Tool {
             const lat = parseFloat(latStr);
             const lon = parseFloat(lonStr);
             if (isNaN(lat) || isNaN(lon)) return;
-            
+
             const eleStr = this.getChildTagText(pt, 'ele');
             const ele = (eleStr !== null && eleStr !== '') ? parseFloat(eleStr) : null;
 
@@ -335,7 +345,7 @@ export class GpxFitCombinerTool extends Tool {
             const cadStr = this.getChildTagText(pt, 'cad');
             const cad = (cadStr !== null && cadStr !== '') ? parseInt(cadStr, 10) : null;
 
-            const powerStr = this.getChildTagText(pt, 'power');
+            const powerStr = this.getChildTagText(pt, 'power') || this.getChildTagText(pt, 'pwr') || this.getChildTagText(pt, 'watts') || this.getChildTagText(pt, 'Watts');
             const power = (powerStr !== null && powerStr !== '') ? parseFloat(powerStr) : null;
 
             const tempStr = this.getChildTagText(pt, 'atemp') || this.getChildTagText(pt, 'wtemp');
@@ -477,6 +487,9 @@ export class GpxFitCombinerTool extends Tool {
                                 if (field.size === 2) {
                                     const val = view.getUint16(offset, isLE);
                                     if (val !== 0xFFFF) power = val;
+                                } else if (field.size === 1) {
+                                    const val = view.getUint8(offset);
+                                    if (val !== 0xFF) power = val;
                                 }
                                 break;
                         }
@@ -510,13 +523,112 @@ export class GpxFitCombinerTool extends Tool {
         };
     }
 
+    parseTcx(fileName, xmlText, fileSize) {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(xmlText, 'text/xml');
+
+        const parserError = doc.querySelector('parsererror');
+        if (parserError) {
+            console.error('TCX XML Parse Error:', parserError.textContent);
+            throw new Error('Invalid TCX XML format.');
+        }
+
+        let pts = Array.from(doc.getElementsByTagNameNS('*', 'Trackpoint'));
+        if (pts.length === 0) {
+            pts = Array.from(doc.getElementsByTagName('Trackpoint'));
+        }
+
+        const trackpoints = [];
+        const baseTime = Date.now();
+        let syntheticPointIndex = 0;
+
+        pts.forEach(pt => {
+            const latStr = this.getChildTagText(pt, 'LatitudeDegrees');
+            const lonStr = this.getChildTagText(pt, 'LongitudeDegrees');
+            if (!latStr || !lonStr) return;
+
+            const lat = parseFloat(latStr);
+            const lon = parseFloat(lonStr);
+            if (isNaN(lat) || isNaN(lon)) return;
+
+            const eleStr = this.getChildTagText(pt, 'AltitudeMeters');
+            const ele = (eleStr !== null && eleStr !== '') ? parseFloat(eleStr) : null;
+
+            const timeStr = this.getChildTagText(pt, 'Time');
+            let time;
+            if (timeStr && timeStr.trim()) {
+                time = new Date(timeStr.trim()).getTime();
+                if (isNaN(time)) time = baseTime + (syntheticPointIndex * 1000);
+            } else {
+                time = baseTime + (syntheticPointIndex * 1000);
+            }
+            syntheticPointIndex++;
+
+            let hr = null;
+            const hrNode = pt.getElementsByTagNameNS('*', 'HeartRateBpm')[0] || pt.getElementsByTagName('HeartRateBpm')[0];
+            if (hrNode) {
+                const hrValStr = this.getChildTagText(hrNode, 'Value');
+                if (hrValStr) hr = parseInt(hrValStr, 10);
+            }
+
+            const cadStr = this.getChildTagText(pt, 'Cadence');
+            const cad = (cadStr !== null && cadStr !== '') ? parseInt(cadStr, 10) : null;
+
+            const powerStr = this.getChildTagText(pt, 'Watts') || this.getChildTagText(pt, 'watts') || this.getChildTagText(pt, 'power') || this.getChildTagText(pt, 'pwr');
+            const power = (powerStr !== null && powerStr !== '') ? parseFloat(powerStr) : null;
+
+            const speedStr = this.getChildTagText(pt, 'Speed') || this.getChildTagText(pt, 'speed');
+            let speed = (speedStr !== null && speedStr !== '') ? parseFloat(speedStr) * 3.6 : null;
+
+            const tempStr = this.getChildTagText(pt, 'atemp') || this.getChildTagText(pt, 'Temp');
+            const atemp = (tempStr !== null && tempStr !== '') ? parseFloat(tempStr) : null;
+
+            trackpoints.push({ lat, lon, ele, time, speed, hr, cad, power, atemp });
+        });
+
+        if (trackpoints.length === 0) {
+            throw new Error('No GPS record trackpoints found in TCX file.');
+        }
+
+        for (let i = 1; i < trackpoints.length; i++) {
+            if (trackpoints[i].speed === null || isNaN(trackpoints[i].speed)) {
+                const prev = trackpoints[i - 1];
+                const curr = trackpoints[i];
+                const dtSec = (curr.time - prev.time) / 1000;
+                if (dtSec > 0 && dtSec < 120) {
+                    const distKm = this.calculateDistanceKm(prev.lat, prev.lon, curr.lat, curr.lon);
+                    curr.speed = (distKm / dtSec) * 3600;
+                } else {
+                    curr.speed = 0;
+                }
+            }
+        }
+        if (trackpoints.length > 0 && (trackpoints[0].speed === null || isNaN(trackpoints[0].speed))) {
+            trackpoints[0].speed = trackpoints[1]?.speed || 0;
+        }
+
+        trackpoints.sort((a, b) => a.time - b.time);
+        const stats = this.calculateTrackStats(trackpoints);
+
+        return {
+            id: Date.now() + Math.random().toString(36).substring(2, 9),
+            name: fileName,
+            type: 'tcx',
+            size: fileSize,
+            trackpoints: trackpoints,
+            startTime: trackpoints[0].time,
+            endTime: trackpoints[trackpoints.length - 1].time,
+            stats: stats
+        };
+    }
+
     calculateDistanceKm(lat1, lon1, lat2, lon2) {
         const R = 6371;
         const dLat = (lat2 - lat1) * Math.PI / 180;
         const dLon = (lon2 - lon1) * Math.PI / 180;
         const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                  Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
         const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
         return R * c;
     }
@@ -561,6 +673,10 @@ export class GpxFitCombinerTool extends Tool {
         let hrCount = 0;
         let maxHr = 0;
 
+        let powerSum = 0;
+        let powerCount = 0;
+        let maxPower = 0;
+
         const startTime = trackpoints[0].time;
         const endTime = trackpoints[trackpoints.length - 1].time;
         const elapsedTimeMs = Math.max(0, endTime - startTime);
@@ -597,6 +713,12 @@ export class GpxFitCombinerTool extends Tool {
                 hrCount++;
                 if (curr.hr > maxHr) maxHr = curr.hr;
             }
+
+            if (curr.power !== null && !isNaN(curr.power)) {
+                powerSum += curr.power;
+                powerCount++;
+                if (curr.power > maxPower) maxPower = curr.power;
+            }
         }
 
         if (movingTimeMs === 0 && elapsedTimeMs > 0) {
@@ -606,6 +728,7 @@ export class GpxFitCombinerTool extends Tool {
         const movingTimeHours = movingTimeMs / 3600000;
         const avgSpeedKmH = movingTimeHours > 0 ? (totalDistKm / movingTimeHours) : 0;
         const avgHr = hrCount > 0 ? Math.round(hrSum / hrCount) : null;
+        const avgPower = powerCount > 0 ? Math.round(powerSum / powerCount) : null;
 
         return {
             distanceKm: totalDistKm,
@@ -616,7 +739,9 @@ export class GpxFitCombinerTool extends Tool {
             avgSpeedKmH: parseFloat(avgSpeedKmH.toFixed(1)),
             maxSpeedKmH: parseFloat(maxSpeed.toFixed(1)),
             avgHr,
-            maxHr: maxHr > 0 ? maxHr : null
+            maxHr: maxHr > 0 ? maxHr : null,
+            avgPower,
+            maxPower: maxPower > 0 ? Math.round(maxPower) : null
         };
     }
 
@@ -679,7 +804,12 @@ export class GpxFitCombinerTool extends Tool {
 
         const filenameInput = this.container.querySelector('#output-track-name');
         if (filenameInput && !filenameInput.value) {
-            filenameInput.value = this.files[0].name.replace(/\.(gpx|fit)$/i, '') + '_combined';
+            filenameInput.value = this.files[0].name.replace(/\.(gpx|fit|tcx)$/i, '') + '_combined';
+        }
+
+        const exportSuffix = this.container.querySelector('#export-suffix');
+        if (exportSuffix) {
+            exportSuffix.textContent = `.${this.exportFormat}`;
         }
 
         this.renderFileList();
@@ -724,6 +854,7 @@ export class GpxFitCombinerTool extends Tool {
                         <span class="stat-pill" title="Elevation Gain / Loss">🏔️ <strong>${eleStr}</strong></span>
                         <span class="stat-pill" title="Average Moving Speed (Max)">⚡ <strong>${speedStr}</strong> (max ${stats.maxSpeedKmH})</span>
                         ${stats.avgHr ? `<span class="stat-pill" title="Average Heart Rate">❤️ <strong>${stats.avgHr} bpm</strong></span>` : ''}
+                        ${stats.avgPower ? `<span class="stat-pill" title="Average Power (Max)">🚴 <strong>${stats.avgPower} W</strong> (max ${stats.maxPower} W)</span>` : ''}
                     </div>
                 </div>
 
@@ -810,6 +941,12 @@ export class GpxFitCombinerTool extends Tool {
                     <span class="stat-box-label">Avg Heart Rate</span>
                     <span class="stat-box-value">${combStats.avgHr} <small>bpm</small></span>
                     <span class="stat-box-sub">Max: ${combStats.maxHr} bpm</span>
+                </div>` : ''}
+                ${combStats.avgPower ? `
+                <div class="stat-box">
+                    <span class="stat-box-label">Avg Power</span>
+                    <span class="stat-box-value">${combStats.avgPower} <small>W</small></span>
+                    <span class="stat-box-sub">Max: ${combStats.maxPower} W</span>
                 </div>` : ''}
             </div>
         `;
@@ -1062,8 +1199,7 @@ export class GpxFitCombinerTool extends Tool {
                         },
                         pan: {
                             enabled: true,
-                            mode: 'x',
-                            modifierKey: 'shift'
+                            mode: 'x'
                         }
                     }
                 }
@@ -1076,6 +1212,9 @@ export class GpxFitCombinerTool extends Tool {
     setupChartCanvasEvents(canvas) {
         if (this.canvasEventsBound) return;
         this.canvasEventsBound = true;
+
+        let isPanDragging = false;
+        let lastPanX = 0;
 
         const getMouseX = (e) => {
             const rect = canvas.getBoundingClientRect();
@@ -1101,7 +1240,16 @@ export class GpxFitCombinerTool extends Tool {
         const onPointerMove = (e) => {
             if (!this.chart || !this.chart.scales || !this.chart.scales.x) return;
             const mouseX = getMouseX(e);
-            const scaleX = this.chart.scales.x;
+
+            if (isPanDragging) {
+                const deltaX = mouseX - lastPanX;
+                lastPanX = mouseX;
+                if (this.chart && typeof this.chart.pan === 'function') {
+                    this.chart.pan({ x: deltaX }, undefined, 'default');
+                }
+                canvas.style.cursor = 'grabbing';
+                return;
+            }
 
             if (this.draggingBoundaryIndex === null) {
                 const hIdx = findHoveredBoundary(mouseX);
@@ -1112,7 +1260,7 @@ export class GpxFitCombinerTool extends Tool {
                         this.chart.update('none');
                     }
                 } else {
-                    canvas.style.cursor = 'default';
+                    canvas.style.cursor = 'grab';
                     if (this.hoveredBoundaryIndex !== null) {
                         this.hoveredBoundaryIndex = null;
                         this.chart.update('none');
@@ -1121,6 +1269,7 @@ export class GpxFitCombinerTool extends Tool {
                 return;
             }
 
+            const scaleX = this.chart.scales.x;
             const idx = this.draggingBoundaryIndex;
             let timeVal = scaleX.getValueForPixel(mouseX);
 
@@ -1172,8 +1321,17 @@ export class GpxFitCombinerTool extends Tool {
             const hIdx = findHoveredBoundary(mouseX);
             if (hIdx !== -1) {
                 this.draggingBoundaryIndex = hIdx;
+                canvas.style.cursor = 'col-resize';
                 if (canvas.setPointerCapture && e.pointerId) {
-                    canvas.setPointerCapture(e.pointerId);
+                    try { canvas.setPointerCapture(e.pointerId); } catch (_) { }
+                }
+                e.preventDefault();
+            } else {
+                isPanDragging = true;
+                lastPanX = mouseX;
+                canvas.style.cursor = 'grabbing';
+                if (canvas.setPointerCapture && e.pointerId) {
+                    try { canvas.setPointerCapture(e.pointerId); } catch (_) { }
                 }
                 e.preventDefault();
             }
@@ -1182,13 +1340,21 @@ export class GpxFitCombinerTool extends Tool {
         const onPointerUp = (e) => {
             if (this.draggingBoundaryIndex !== null) {
                 if (canvas.releasePointerCapture && e.pointerId) {
-                    try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
+                    try { canvas.releasePointerCapture(e.pointerId); } catch (_) { }
                 }
                 this.draggingBoundaryIndex = null;
                 this.activeSnapInfo = null;
                 this.hoveredBoundaryIndex = null;
-                canvas.style.cursor = 'default';
+                canvas.style.cursor = 'grab';
                 if (this.chart) this.chart.update('none');
+            }
+
+            if (isPanDragging) {
+                isPanDragging = false;
+                if (canvas.releasePointerCapture && e.pointerId) {
+                    try { canvas.releasePointerCapture(e.pointerId); } catch (_) { }
+                }
+                canvas.style.cursor = 'grab';
             }
         };
 
@@ -1256,6 +1422,10 @@ export class GpxFitCombinerTool extends Tool {
                 const gpxContent = this.generateGpxXml(finalTrackpoints, baseName);
                 const blob = new Blob([gpxContent], { type: 'application/gpx+xml' });
                 this.downloadBlob(blob, `${baseName}.gpx`);
+            } else if (this.exportFormat === 'tcx') {
+                const tcxContent = this.generateTcxXml(finalTrackpoints, baseName);
+                const blob = new Blob([tcxContent], { type: 'application/vnd.garmin.tcx+xml' });
+                this.downloadBlob(blob, `${baseName}.tcx`);
             } else {
                 const fitBuffer = this.generateFitBinary(finalTrackpoints);
                 const blob = new Blob([fitBuffer], { type: 'application/octet-stream' });
@@ -1270,6 +1440,79 @@ export class GpxFitCombinerTool extends Tool {
             loader.style.display = 'none';
             btnText.style.display = 'inline-block';
         }
+    }
+
+    generateTcxXml(trackpoints, trackName = 'Combined_Track') {
+        if (!trackpoints || trackpoints.length === 0) return '';
+
+        const startTimeIso = new Date(trackpoints[0].time).toISOString();
+        const stats = this.calculateTrackStats(trackpoints);
+        const totalDistMeters = Math.round(stats.distanceKm * 1000);
+        const totalDurationSec = Math.round(stats.elapsedTimeMs / 1000);
+
+        let xml = `<?xml version="1.0" encoding="UTF-8"?>\n`;
+        xml += `<TrainingCenterDatabase xmlns="http://www.garmin.com/xmlschemas/TrainingCenterDatabase/v2" xmlns:ns3="http://www.garmin.com/xmlschemas/ActivityExtension/v2">\n`;
+        xml += `  <Activities>\n`;
+        xml += `    <Activity Sport="Biking">\n`;
+        xml += `      <Id>${startTimeIso}</Id>\n`;
+        xml += `      <Lap StartTime="${startTimeIso}">\n`;
+        xml += `        <TotalTimeSeconds>${totalDurationSec}</TotalTimeSeconds>\n`;
+        xml += `        <DistanceMeters>${totalDistMeters}</DistanceMeters>\n`;
+        if (stats.maxSpeedKmH > 0) xml += `        <MaximumSpeed>${(stats.maxSpeedKmH / 3.6).toFixed(2)}</MaximumSpeed>\n`;
+        if (stats.avgHr) xml += `        <AverageHeartRateBpm><Value>${stats.avgHr}</Value></AverageHeartRateBpm>\n`;
+        if (stats.maxHr) xml += `        <MaximumHeartRateBpm><Value>${stats.maxHr}</Value></MaximumHeartRateBpm>\n`;
+        xml += `        <Intensity>Active</Intensity>\n`;
+        xml += `        <TriggerMethod>Manual</TriggerMethod>\n`;
+        xml += `        <Track>\n`;
+
+        let cumulativeDistKm = 0;
+        for (let i = 0; i < trackpoints.length; i++) {
+            const pt = trackpoints[i];
+            if (i > 0) {
+                const prev = trackpoints[i - 1];
+                cumulativeDistKm += this.calculateDistanceKm(prev.lat, prev.lon, pt.lat, pt.lon);
+            }
+
+            const ptTimeIso = new Date(pt.time).toISOString();
+            xml += `          <Trackpoint>\n`;
+            xml += `            <Time>${ptTimeIso}</Time>\n`;
+            xml += `            <Position>\n`;
+            xml += `              <LatitudeDegrees>${pt.lat.toFixed(6)}</LatitudeDegrees>\n`;
+            xml += `              <LongitudeDegrees>${pt.lon.toFixed(6)}</LongitudeDegrees>\n`;
+            xml += `            </Position>\n`;
+            if (pt.ele !== null && !isNaN(pt.ele)) xml += `            <AltitudeMeters>${pt.ele.toFixed(1)}</AltitudeMeters>\n`;
+            xml += `            <DistanceMeters>${Math.round(cumulativeDistKm * 1000)}</DistanceMeters>\n`;
+            if (pt.hr !== null && !isNaN(pt.hr)) {
+                xml += `            <HeartRateBpm><Value>${Math.round(pt.hr)}</Value></HeartRateBpm>\n`;
+            }
+            if (pt.cad !== null && !isNaN(pt.cad)) {
+                xml += `            <Cadence>${Math.round(pt.cad)}</Cadence>\n`;
+            }
+
+            const hasExt = (pt.speed !== null && !isNaN(pt.speed)) || (pt.power !== null && !isNaN(pt.power));
+            if (hasExt) {
+                xml += `            <Extensions>\n`;
+                xml += `              <ns3:TPX>\n`;
+                if (pt.speed !== null && !isNaN(pt.speed)) {
+                    xml += `                <ns3:Speed>${(pt.speed / 3.6).toFixed(2)}</ns3:Speed>\n`;
+                }
+                if (pt.power !== null && !isNaN(pt.power)) {
+                    xml += `                <ns3:Watts>${Math.round(pt.power)}</ns3:Watts>\n`;
+                }
+                xml += `              </ns3:TPX>\n`;
+                xml += `            </Extensions>\n`;
+            }
+
+            xml += `          </Trackpoint>\n`;
+        }
+
+        xml += `        </Track>\n`;
+        xml += `      </Lap>\n`;
+        xml += `    </Activity>\n`;
+        xml += `  </Activities>\n`;
+        xml += `</TrainingCenterDatabase>\n`;
+
+        return xml;
     }
 
     buildCombinedTrackpoints() {
@@ -1440,15 +1683,24 @@ export class GpxFitCombinerTool extends Tool {
         return buffer.slice(0, offset);
     }
 
+    handleSave() {
+        return this.saveResult();
+    }
+
     downloadBlob(blob, filename) {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
+        a.style.display = 'none';
         a.href = url;
         a.download = filename;
         document.body.appendChild(a);
         a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        setTimeout(() => {
+            if (a.parentNode) {
+                document.body.removeChild(a);
+            }
+            URL.revokeObjectURL(url);
+        }, 200);
     }
 
     escapeHtml(unsafe) {
